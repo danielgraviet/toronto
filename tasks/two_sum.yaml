@@ -1,0 +1,31 @@
+id: two_sum
+title: Two Sum
+func_name: two_sum
+audience_blurb: "Find two indices whose values add to a target — interview classic."
+prompt: |
+  # Return a list of two indices i, j (i < j) such that nums[i] + nums[j] == target.
+  # You may assume exactly one solution exists.
+  # Do not import helper libraries. No eval/exec.
+
+  def two_sum(nums: list[int], target: int) -> list[int]:
+      """Return indices of the two numbers that add up to target."""
+banned_patterns:
+  - "eval("
+  - "exec("
+  - "__import__"
+  - "itertools"
+tests:
+  - { input: { nums: [2, 7, 11, 15], target: 9 }, output: [0, 1] }
+  - { input: { nums: [3, 2, 4], target: 6 }, output: [1, 2] }
+  - { input: { nums: [3, 3], target: 6 }, output: [0, 1] }
+  - { input: { nums: [1, 4, 5, -1, 10], target: 9 }, output: [1, 2] }
+  - { input: { nums: [0, 4, 3, 0], target: 0 }, output: [0, 3] }
+reference: |
+  def two_sum(nums: list[int], target: int) -> list[int]:
+      seen = {}
+      for i, x in enumerate(nums):
+          need = target - x
+          if need in seen:
+              return [seen[need], i]
+          seen[x] = i
+      raise ValueError("no solution")

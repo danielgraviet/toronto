@@ -1,0 +1,43 @@
+id: fizzbuzz_plus
+title: FizzBuzz+
+func_name: fizzbuzz
+audience_blurb: "Return Fizz/Buzz/FizzBuzz/n — plus a twist: multiples of 7 return 'Daytona'."
+prompt: |
+  # FizzBuzz with a Daytona twist.
+  # For n > 0:
+  # - multiples of 3 and 5 -> "FizzBuzz"
+  # - multiples of 3 -> "Fizz"
+  # - multiples of 5 -> "Buzz"
+  # - multiples of 7 -> "Daytona"  (checked after 3/5 rules; 21 is still Fizz, 35 is Buzz, 105 is FizzBuzz)
+  # - else -> the number as a string
+  # Do not use eval/exec. Pure Python.
+
+  def fizzbuzz(n: int) -> str:
+      """Return the FizzBuzz+ label for n."""
+banned_patterns:
+  - "eval("
+  - "exec("
+  - "__import__"
+  - "os."
+  - "subprocess"
+tests:
+  - { input: 1, output: "1" }
+  - { input: 3, output: "Fizz" }
+  - { input: 5, output: "Buzz" }
+  - { input: 7, output: "Daytona" }
+  - { input: 15, output: "FizzBuzz" }
+  - { input: 21, output: "Fizz" }
+  - { input: 35, output: "Buzz" }
+  - { input: 105, output: "FizzBuzz" }
+  - { input: 14, output: "Daytona" }
+reference: |
+  def fizzbuzz(n: int) -> str:
+      if n % 3 == 0 and n % 5 == 0:
+          return "FizzBuzz"
+      if n % 3 == 0:
+          return "Fizz"
+      if n % 5 == 0:
+          return "Buzz"
+      if n % 7 == 0:
+          return "Daytona"
+      return str(n)

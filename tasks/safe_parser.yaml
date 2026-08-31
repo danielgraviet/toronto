@@ -1,0 +1,49 @@
+id: safe_parser
+title: Safe Parser
+func_name: parse_int_csv
+audience_blurb: "Parse a tiny CSV of integers safely — no eval, no file tricks."
+prompt: |
+  # parse_int_csv takes a string like "1, 2, -3, 4" and returns a list of ints.
+  # Rules:
+  # - split on commas
+  # - strip whitespace
+  # - empty fields are invalid -> raise ValueError
+  # - reject any non-integer token
+  # Do NOT use eval, exec, ast.literal_eval is also banned for this exercise — parse manually.
+  # Do not read files or touch the network.
+
+  def parse_int_csv(s: str) -> list[int]:
+      """Parse a comma-separated list of integers."""
+banned_patterns:
+  - "eval("
+  - "exec("
+  - "literal_eval"
+  - "__import__"
+  - "os."
+  - "subprocess"
+  - "open("
+  - "requests"
+  - "urllib"
+  - "socket"
+tests:
+  - { input: "1,2,3", output: [1, 2, 3] }
+  - { input: " 1,  2, -3 ", output: [1, 2, -3] }
+  - { input: "42", output: [42] }
+  - { input: "0,0,0", output: [0, 0, 0] }
+  # harness should also assert ValueError on bad inputs via separate error_tests if implemented
+error_tests:
+  - { input: "1,,2", raises: ValueError }
+  - { input: "1,2,x", raises: ValueError }
+  - { input: "", raises: ValueError }
+reference: |
+  def parse_int_csv(s: str) -> list[int]:
+      if s.strip() == "":
+          raise ValueError("empty")
+      out = []
+      for part in s.split(","):
+          token = part.strip()
+          if token == "":
+              raise ValueError("empty field")
+          # manual int parse without eval
+          out.append(int(token))
+      return out
