@@ -1,2 +1,0 @@
-"""Toronto live demo package."""
-

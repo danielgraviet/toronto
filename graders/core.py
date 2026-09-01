@@ -8,15 +8,19 @@ import sys
 import time
 from typing import Any
 
-from toronto.tasks.loader import Task
+from tasks.loader import Task
 
 from .models import EvalResult, RewardKnobs
 
 
 def sanitize_completion(raw: str, func_name: str) -> str:
-    text = raw.strip()
-    text = re.sub(r"^```(?:python)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text).strip()
+    # Do not call ``strip()`` here: the first line of a completion may carry
+    # the indentation that makes it part of the function body.
+    text = raw.strip("\r\n")
+    # Only consume the fence line's own whitespace; ``\s*`` would also eat
+    # the indentation on the first code line after the newline.
+    text = re.sub(r"^```(?:python)?[ \t]*(?:\r?\n|$)", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```$", "", text).strip("\r\n")
     marker = re.search(rf"^\s*def\s+{re.escape(func_name)}\b[^:]*:\s*$", text, re.MULTILINE)
     if marker:
         text = text[marker.end():]
@@ -31,7 +35,7 @@ def sanitize_completion(raw: str, func_name: str) -> str:
             kept.append(line)
         elif kept:
             break
-    return "\n".join(kept).rstrip()
+    return "\n".join(kept).rstrip("\r\n")
 
 
 def has_banned_pattern(body: str, task: Task) -> bool:
