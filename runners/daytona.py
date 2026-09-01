@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -96,6 +97,34 @@ class DaytonaRunner:
 
     async def upload(self, sandbox: Any, local_path: str | Path, remote_path: str, timeout_seconds: int = 60) -> None:
         await sandbox.fs.upload_file(str(local_path), remote_path, timeout=timeout_seconds)
+
+    async def upload_tree(
+        self,
+        sandbox: Any,
+        local_root: str | Path,
+        remote_root: str,
+        timeout_seconds: int = 60,
+    ) -> None:
+        """Upload source/task files without uploading secrets or caches."""
+        root = Path(local_root)
+        paths = [
+            path for path in root.rglob("*")
+            if path.is_file()
+            and "__pycache__" not in path.parts
+            and path.suffix in {".py", ".yaml"}
+            and path.name != ".env"
+        ]
+        await asyncio.gather(
+            *(
+                self.upload(
+                    sandbox,
+                    path,
+                    f"{remote_root}/{path.relative_to(root)}",
+                    timeout_seconds,
+                )
+                for path in paths
+            )
+        )
 
     async def exec(
         self,

@@ -1,3 +1,1 @@
-from .config import Settings
-
-__all__ = ["Settings"]
+"""Training and reward integration."""

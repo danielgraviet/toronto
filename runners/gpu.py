@@ -6,7 +6,9 @@ import argparse
 import asyncio
 import importlib
 import os
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -178,6 +180,7 @@ def main() -> None:
     parser.add_argument("--keep", action="store_true", help="keep the remote sandbox after the run")
     parser.add_argument("--inspect-trl", action="store_true", help="print installed TRL signatures")
     parser.add_argument("--synthetic-grpo", action="store_true", help="run one GRPO step without Daytona")
+    parser.add_argument("--real-grpo-smoke", action="store_true", help="run one GRPO step with Daytona rewards")
     args = parser.parse_args()
 
     if args.remote:
@@ -196,6 +199,8 @@ def main() -> None:
     if args.synthetic_grpo:
         run_synthetic_grpo(args.model)
         return
+    if args.real_grpo_smoke:
+        raise RuntimeError("--real-grpo-smoke must be used with --remote")
 
     model, tokenizer = load_model(args.model)
     completions = generate_completions(
@@ -213,7 +218,11 @@ async def run_remote(args: argparse.Namespace) -> None:
     sandbox = None
     try:
         sandbox = await runner.create(
-            SandboxSpec(snapshot=args.snapshot, name="toronto-gpu-smoke", ephemeral=True)
+            SandboxSpec(
+                snapshot=args.snapshot,
+                name=f"toronto-gpu-smoke-{uuid.uuid4().hex[:8]}",
+                ephemeral=True,
+            )
         )
         print(f"Created remote sandbox: {getattr(sandbox, 'id', 'unknown')}")
         local_file = __file__
@@ -227,9 +236,14 @@ async def run_remote(args: argparse.Namespace) -> None:
             command += " --inspect-trl"
         if args.synthetic_grpo:
             command += " --synthetic-grpo"
+        if args.real_grpo_smoke:
+            remote_root = "/tmp/toronto"
+            await runner.upload_tree(sandbox, Path(__file__).parents[1], remote_root)
+            command = f"cd {remote_root} && PYTHONPATH={remote_root} python -m trainer.smoke --pool-size 2"
         remote_env = {}
-        if hf_token := os.getenv("HF_TOKEN"):
-            remote_env["HF_TOKEN"] = hf_token
+        for name in ("DAYTONA_API_KEY", "HF_TOKEN"):
+            if value := os.getenv(name):
+                remote_env[name] = value
         response = await runner.exec(
             sandbox, command, timeout_seconds=900, env=remote_env or None
         )
