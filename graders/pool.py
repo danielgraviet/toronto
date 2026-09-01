@@ -70,7 +70,10 @@ class DaytonaGraderPool:
         return self.healthy_size
 
     async def stop(self) -> None:
-        slots, self._slots = self._slots, []
+        # Detach the active slots before awaiting deletion. This makes the
+        # pool visibly empty immediately, even if cleanup takes time.
+        slots = self._slots
+        self._slots = []
         await asyncio.gather(
             *(self.runner.delete(slot.sandbox) for slot in slots), return_exceptions=True
         )
@@ -89,7 +92,11 @@ class DaytonaGraderPool:
             raise ValueError("completions and prompts must have equal length")
 
         async def evaluate_at(index: int, completion: str, prompt: str) -> EvalResult:
+            # Modulo wraps indices back to the first slot, producing an even
+            # round-robin assignment: 0, 1, ..., N-1, 0, 1, ...
             slot = self._slots[index % len(self._slots)]
+            # A slot has one gate, so two evaluations can never use the same
+            # sandbox concurrently. Different slots still run in parallel.
             async with slot.gate:
                 return await self._evaluate_one(slot.sandbox, completion, prompt)
 
