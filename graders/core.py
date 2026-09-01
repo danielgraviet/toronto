@@ -5,12 +5,12 @@ import json
 import re
 import subprocess
 import sys
-import time
 from typing import Any
 
 from tasks.loader import Task
 
 from .models import EvalResult, RewardKnobs
+from .utils import elapsed_ms, start_timer
 
 
 def sanitize_completion(raw: str, func_name: str) -> str:
@@ -77,22 +77,20 @@ def parse_results(stdout: str, expected_tests: int) -> tuple[int, int] | None:
 
 
 def evaluate_local(task: Task, completion: str, timeout_seconds: float = 1.0) -> EvalResult:
-    started = time.perf_counter()
+    started = start_timer()
     body = sanitize_completion(completion, task.func_name)
     if not body or has_banned_pattern(body, task):
-        return EvalResult(False, 0, task.total_tests, _elapsed(started), banned=bool(body and has_banned_pattern(body, task)), completion=completion)
+        return EvalResult(False, 0, task.total_tests, elapsed_ms(started), banned=bool(body and has_banned_pattern(body, task)), completion=completion)
     try:
         ast.parse(task.prompt + "\n" + body)
         process = subprocess.run([sys.executable, "-c", build_test_harness(task, body)], capture_output=True, text=True, timeout=timeout_seconds)
     except (subprocess.TimeoutExpired, OSError, SyntaxError) as exc:
-        return EvalResult(False, 0, task.total_tests, _elapsed(started), error=type(exc).__name__, completion=completion)
+        return EvalResult(False, 0, task.total_tests, elapsed_ms(started), error=type(exc).__name__, completion=completion)
     parsed = parse_results(process.stdout, task.total_tests)
     if process.returncode != 0 or parsed is None:
-        return EvalResult(False, 0, task.total_tests, _elapsed(started), error="harness_failed", completion=completion)
+        return EvalResult(False, 0, task.total_tests, elapsed_ms(started), error="harness_failed", completion=completion)
     passed, total = parsed
-    return EvalResult(True, passed, total, _elapsed(started), completion=completion)
-
-
+    return EvalResult(True, passed, total, elapsed_ms(started), completion=completion)
 def reward_for(result: EvalResult, knobs: RewardKnobs) -> float:
     if not result.no_error or result.banned:
         return -1.0
@@ -102,7 +100,3 @@ def reward_for(result: EvalResult, knobs: RewardKnobs) -> float:
     speed_term = max(0.0, 1.0 - result.duration_ms / 1000.0)
     reward = base - knobs.lambda_len * normalized_lines + knobs.lambda_speed * speed_term
     return max(-1.0, min(1.0, reward))
-
-
-def _elapsed(started: float) -> int:
-    return int((time.perf_counter() - started) * 1000)
