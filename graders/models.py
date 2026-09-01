@@ -20,4 +20,5 @@ class EvalResult:
     banned: bool = False
     error: str | None = None
     completion: str = ""
-
+    test_results: tuple[bool, ...] = ()
+    test_weights: tuple[float, ...] = ()

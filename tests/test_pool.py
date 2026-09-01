@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -33,15 +34,17 @@ class FakeSandbox:
 class FakeResponse:
     error = None
 
-    def __init__(self, passed: int = 9) -> None:
-        self.stdout = json.dumps({"results": [True] * passed + [False] * (9 - passed)})
+    def __init__(self, passed: int = 9, total: int = 9) -> None:
+        self.stdout = json.dumps({"results": [True] * passed + [False] * (total - passed)})
 
 
 class FakeRunner:
-    def __init__(self) -> None:
+    def __init__(self, num_tests: int = 9) -> None:
+        self.num_tests = num_tests
         self.created: list[FakeSandbox] = []
         self.deleted: list[str] = []
         self.executed: list[str] = []
+        self.executed_code: list[str] = []
         self.active: dict[str, int] = {}
         self.max_active: dict[str, int] = {}
 
@@ -58,11 +61,12 @@ class FakeRunner:
 
     async def run_code(self, sandbox: FakeSandbox, code: str, timeout_seconds: int) -> FakeResponse:
         self.executed.append(sandbox.id)
+        self.executed_code.append(code)
         self.active[sandbox.id] = self.active.get(sandbox.id, 0) + 1
         self.max_active[sandbox.id] = max(self.max_active.get(sandbox.id, 0), self.active[sandbox.id])
         await asyncio.sleep(0)
         self.active[sandbox.id] -= 1
-        return FakeResponse()
+        return FakeResponse(passed=self.num_tests, total=self.num_tests)
 
 
 def test_pool_warms_reuses_round_robin_and_preserves_result_order() -> None:
@@ -114,4 +118,36 @@ async def _test_pool_rejects_mismatched_inputs() -> None:
 
     with pytest.raises(ValueError, match="equal length"):
         await pool.evaluate_batch([GOOD], [])
+    await pool.close()
+
+
+def test_pool_accepts_explicit_task_variants_for_holdout_evaluation() -> None:
+    asyncio.run(_test_pool_accepts_explicit_task_variants_for_holdout_evaluation())
+
+
+async def _test_pool_accepts_explicit_task_variants_for_holdout_evaluation() -> None:
+    runner = FakeRunner()
+    pool = DaytonaGraderPool(runner=runner, task_loader=TaskLoader(TASKS_DIR), requested_size=1)
+    holdout = replace(TASK, prompt="# holdout\n" + TASK.prompt)
+
+    results = await pool.evaluate_batch([GOOD], ["holdout prompt"], tasks=[holdout])
+
+    assert results[0].no_error
+    assert "# holdout" in runner.executed_code[0]
+    await pool.close()
+
+
+def test_pool_resolves_a_declared_prompt_variant() -> None:
+    asyncio.run(_test_pool_resolves_a_declared_prompt_variant())
+
+
+async def _test_pool_resolves_a_declared_prompt_variant() -> None:
+    runner = FakeRunner(num_tests=7)
+    task = TaskLoader(TASKS_DIR).load("safe_parser")
+    pool = DaytonaGraderPool(runner=runner, task_loader=TaskLoader(TASKS_DIR), requested_size=1)
+
+    results = await pool.evaluate_batch(["    return [int(x) for x in s.split(',')]"] , [task.prompts[1]])
+
+    assert results[0].error is None
+    assert task.prompt in runner.executed_code[0]
     await pool.close()

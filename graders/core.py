@@ -63,6 +63,13 @@ def build_test_harness(task: Task, body: str) -> str:
 
 
 def parse_results(stdout: str, expected_tests: int) -> tuple[int, int] | None:
+    flags = parse_result_flags(stdout, expected_tests)
+    if flags is None:
+        return None
+    return sum(flags), len(flags)
+
+
+def parse_result_flags(stdout: str, expected_tests: int) -> tuple[bool, ...] | None:
     lines = [line.strip() for line in stdout.splitlines() if line.strip()]
     if not lines:
         return None
@@ -71,7 +78,7 @@ def parse_results(stdout: str, expected_tests: int) -> tuple[int, int] | None:
         results = payload["results"]
         if not isinstance(results, list) or len(results) != expected_tests or not all(isinstance(x, bool) for x in results):
             return None
-        return sum(results), len(results)
+        return tuple(results)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
 
@@ -86,15 +93,33 @@ def evaluate_local(task: Task, completion: str, timeout_seconds: float = 1.0) ->
         process = subprocess.run([sys.executable, "-c", build_test_harness(task, body)], capture_output=True, text=True, timeout=timeout_seconds)
     except (subprocess.TimeoutExpired, OSError, SyntaxError) as exc:
         return EvalResult(False, 0, task.total_tests, elapsed_ms(started), error=type(exc).__name__, completion=completion)
-    parsed = parse_results(process.stdout, task.total_tests)
-    if process.returncode != 0 or parsed is None:
+    flags = parse_result_flags(process.stdout, task.total_tests)
+    if process.returncode != 0 or flags is None:
         return EvalResult(False, 0, task.total_tests, elapsed_ms(started), error="harness_failed", completion=completion)
-    passed, total = parsed
-    return EvalResult(True, passed, total, elapsed_ms(started), completion=completion)
+    passed, total = sum(flags), len(flags)
+    return EvalResult(
+        True,
+        passed,
+        total,
+        elapsed_ms(started),
+        completion=completion,
+        test_results=flags,
+        test_weights=task.reward_weights,
+    )
 def reward_for(result: EvalResult, knobs: RewardKnobs) -> float:
     if not result.no_error or result.banned:
         return -1.0
-    base = result.num_passed / result.num_tests if result.num_tests else 0.0
+    if result.test_results and len(result.test_results) == result.num_tests:
+        weights = result.test_weights or (1.0,) * result.num_tests
+        total_weight = sum(weights)
+        base = (
+            sum(weight for passed, weight in zip(result.test_results, weights) if passed)
+            / total_weight
+            if total_weight
+            else 0.0
+        )
+    else:
+        base = result.num_passed / result.num_tests if result.num_tests else 0.0
     lines = max(1, len(result.completion.splitlines()))
     normalized_lines = min(1.0, lines / 20.0)
     speed_term = max(0.0, 1.0 - result.duration_ms / 1000.0)

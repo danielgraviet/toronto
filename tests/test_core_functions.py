@@ -20,6 +20,7 @@ TASKS_DIR = Path(__file__).parents[1] / "tasks"
 loader = TaskLoader(TASKS_DIR)
 fizzbuzz = loader.load("fizzbuzz_plus")
 safe_parser = loader.load("safe_parser")
+two_sum_plus = loader.load("two_sum_plus")
 
 GOOD_COMPLETION = """    if n % 3 == 0 and n % 5 == 0:
         return "FizzBuzz"
@@ -139,10 +140,49 @@ def test_evaluate_local_turns_syntax_errors_into_failed_result() -> None:
     assert result.error == "SyntaxError"
 
 
+def test_evaluate_local_grades_two_sum_plus_first_pair_and_no_solution() -> None:
+    completion = """    for i, left in enumerate(nums):
+        for j in range(i + 1, len(nums)):
+            if left + nums[j] == target:
+                return [i, j]
+    return []
+"""
+    result = evaluate_local(two_sum_plus, completion)
+
+    assert result.no_error
+    assert (result.num_passed, result.num_tests) == (10, 10)
+    assert result.test_results[-2:] == (True, True)
+
+
+def test_two_sum_plus_partial_solution_receives_weighted_signal() -> None:
+    completion = """    if len(nums) >= 2 and nums[0] + nums[1] == target:
+        return [0, 1]
+    return []
+"""
+    result = evaluate_local(two_sum_plus, completion)
+
+    assert result.no_error
+    assert 0 < result.num_passed < result.num_tests
+    assert 0.0 < reward_for(result, RewardKnobs()) < 1.0
+
+
 def test_reward_for_uses_pass_rate_as_base() -> None:
     result = EvalResult(True, 5, 10, completion="    return value")
 
     assert reward_for(result, RewardKnobs()) == pytest.approx(0.5)
+
+
+def test_reward_for_uses_weighted_individual_test_results() -> None:
+    result = EvalResult(
+        True,
+        4,
+        7,
+        completion="    return value",
+        test_results=(True, True, True, True, False, False, False),
+        test_weights=(1, 1, 1, 1, 2, 2, 2),
+    )
+
+    assert reward_for(result, RewardKnobs()) == pytest.approx(0.4)
 
 
 def test_reward_for_returns_negative_one_for_failure_or_ban() -> None:

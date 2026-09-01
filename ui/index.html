@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toronto · Teach It in Public</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="deck">
+      <header class="deck-header">
+        <span class="brand">TORONTO / RL DEMO</span>
+        <span><i id="status-dot"></i><span id="connection-label">REHEARSAL MODE</span></span>
+      </header>
+
+      <section class="slides" aria-live="polite">
+        <article class="slide active" data-slide="0">
+          <p class="kicker">TEACH IT IN PUBLIC</p>
+          <h1>Can a weak model<br><em>learn to code?</em></h1>
+          <p class="lead">We give it a coding problem, run its answers through isolated sandboxes, and reward what passes.</p>
+          <div class="equation"><span>GENERATE</span><b>→</b><span>EVALUATE</span><b>→</b><span>REWARD</span><b>→</b><span>UPDATE</span></div>
+          <p class="quiet">Use the arrows to walk through the experiment.</p>
+        </article>
+
+        <article class="slide" data-slide="1">
+          <p class="kicker">01 / THE TASK</p>
+          <h2 id="task-title">Two Sum+</h2>
+          <p class="lead" id="task-blurb">Find the lexicographically first pair that adds to a target, or return an empty list.</p>
+          <div class="task-layout">
+            <div class="paper-code"><span>task_prompt.py</span><pre id="prompt-code">def two_sum(nums, target):
+    """Return the first valid pair, or []."""
+    # the model completes this function</pre></div>
+            <div class="task-rules"><p class="kicker">WHAT COUNTS</p><p>Correct output</p><p>Edge cases</p><p>No cheating</p><button class="button" id="lock-task">Lock Two Sum+</button><select id="task-select" aria-label="Choose task"><option value="two_sum_plus">Two Sum+</option><option value="safe_parser">Safe Parser</option><option value="fizzbuzz_plus">FizzBuzz+</option></select></div>
+          </div>
+        </article>
+
+        <article class="slide" data-slide="2">
+          <p class="kicker">02 / BEFORE TRAINING</p>
+          <h2>Start with the base model</h2>
+          <p class="lead">We sample several answers before changing the weights. Each square is one isolated CPU sandbox.</p>
+          <div class="metric-row"><div><span class="kicker">BASELINE PASS RATE</span><strong id="before-rate">—</strong></div><button class="button dark" id="baseline">Run baseline</button></div>
+          <div class="sandbox-grid" id="sandbox-grid"></div>
+          <p class="caption" id="grid-caption">No completions evaluated yet.</p>
+          <span id="grid-count" class="hidden">0</span><span id="pool-status" class="hidden">16 READY</span>
+        </article>
+
+        <article class="slide" data-slide="3">
+          <p class="kicker">03 / THE LEARNING LOOP</p>
+          <h2>Reward the attempts that work</h2>
+          <div class="loop-layout">
+            <div class="loop-copy"><p>Every answer is tested. Passing more tests produces a higher reward. GRPO uses those relative rewards to update the model.</p><div class="mini-stat"><span>STEP</span><strong id="step-number">0 / 4</strong></div><div class="mini-stat"><span>MEAN REWARD</span><strong id="mean-reward">—</strong></div><div class="operator"><details><summary>Operator controls</summary><label>Tax long answers <input id="length-knob" type="checkbox"></label><label>Ban cheating <input id="ban-knob" type="checkbox"></label><button class="text-button" id="apply-knobs">Apply knobs</button></details></div></div>
+            <div class="chart-wrap"><div class="chart-title"><span>PASS RATE BY STEP</span><span id="phase-label">IDLE</span></div><svg id="reward-chart" viewBox="0 0 440 250"><path class="chart-gridline" d="M42 20H430 M42 125H430 M42 230H430"/><path id="curve-area" class="curve-area" d="M42 230H430V230H42Z"/><path id="curve-line" class="curve-line" d="M42 230H430"/><g id="curve-points"></g><text x="5" y="24">100%</text><text x="12" y="129">50%</text><text x="23" y="234">0%</text><text x="42" y="248">start</text><text x="400" y="248">step</text></svg></div>
+          </div><span id="current-rate" class="hidden">—</span>
+          <button class="button dark train-button" id="train">Train 4 steps</button><button id="stop" class="button danger hidden" disabled>Stop</button>
+        </article>
+
+        <article class="slide" data-slide="4">
+          <p class="kicker">04 / AFTER TRAINING</p>
+          <h2>Did it learn?</h2>
+          <div class="result"><div><span class="kicker">BASELINE</span><strong id="result-before">—</strong></div><span class="result-arrow">→</span><div><span class="kicker">BEST CHECKPOINT</span><strong id="after-rate">—</strong></div></div>
+          <p class="lead result-copy">The model is not judged by what it says. It is judged by whether its code passes tests it has not seen.</p>
+          <div class="paper-code best"><span>best_completion.py</span><pre id="best-code">The best completion will appear here.</pre><footer><span id="best-score">No reward yet</span><span id="best-step">—</span></footer></div>
+          <button class="button" id="ghost">Replay rehearsal</button><p class="quiet">If the network fails, the recorded run keeps the story moving.</p>
+        </article>
+      </section>
+
+      <footer class="deck-nav"><button class="nav-button" id="previous" aria-label="Previous slide">←</button><div class="progress"><span id="slide-number">1</span> / 5 <div class="progress-line"><i id="progress-line"></i></div></div><button class="nav-button" id="next" aria-label="Next slide">→</button></footer>
+      <div class="toast" id="toast" role="status"></div>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

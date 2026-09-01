@@ -30,6 +30,22 @@ tests:
   - { input: 35, output: "Buzz" }
   - { input: 105, output: "FizzBuzz" }
   - { input: 14, output: "Daytona" }
+holdout_tests:
+  - { input: 2, output: "2" }
+  - { input: 4, output: "4" }
+  - { input: 6, output: "Fizz" }
+  - { input: 10, output: "Buzz" }
+  - { input: 28, output: "Daytona" }
+  - { input: 45, output: "FizzBuzz" }
+  - { input: 70, output: "Buzz" }
+validation_tests:
+  - { input: 8, output: "8" }
+  - { input: 9, output: "Fizz" }
+  - { input: 20, output: "Buzz" }
+  - { input: 49, output: "Daytona" }
+  - { input: 60, output: "FizzBuzz" }
+  - { input: 77, output: "Daytona" }
+  - { input: 90, output: "FizzBuzz" }
 reference: |
   def fizzbuzz(n: int) -> str:
       if n % 3 == 0 and n % 5 == 0:

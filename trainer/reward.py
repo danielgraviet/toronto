@@ -12,6 +12,7 @@ from graders.models import EvalResult, RewardKnobs
 
 T = TypeVar("T")
 ResultObserver = Callable[[EvalResult, int], None]
+BatchObserver = Callable[[list[EvalResult], list[float]], None]
 
 
 class AsyncLoopBridge:
@@ -60,11 +61,13 @@ class DaytonaReward:
         pool: Any,
         knobs: RewardKnobs | None = None,
         observer: ResultObserver | None = None,
+        batch_observer: BatchObserver | None = None,
         bridge: AsyncLoopBridge | None = None,
     ) -> None:
         self.pool = pool
         self.knobs = knobs or RewardKnobs()
         self.observer = observer
+        self.batch_observer = batch_observer
         self.bridge = bridge or AsyncLoopBridge()
         self._owns_bridge = bridge is None
 
@@ -81,6 +84,8 @@ class DaytonaReward:
             if self.observer:
                 self.observer(result, index)
             rewards.append(reward_for(result, self.knobs))
+        if self.batch_observer:
+            self.batch_observer(results, rewards)
         return rewards
 
     def close(self) -> None:

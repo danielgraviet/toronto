@@ -122,6 +122,18 @@ def inspect_trl() -> dict[str, str]:
     }
 
 
+def validate_real_smoke_entrypoint() -> None:
+    """Fail locally if the remote real-GRPO entrypoint is incomplete."""
+    from trainer import smoke
+
+    required = ("generate_completions", "load_model", "DaytonaGraderPool", "DaytonaReward")
+    missing = [name for name in required if not callable(getattr(smoke, name, None))]
+    if missing:
+        raise RuntimeError(
+            "trainer.smoke is missing runtime dependencies: " + ", ".join(missing)
+        )
+
+
 def run_synthetic_grpo(model_name: str = DEFAULT_MODEL_NAME, output_dir: str = "/tmp/toronto-grpo-smoke") -> None:
     """Run one GRPO step without Daytona to isolate the TRL training path."""
     torch = importlib.import_module("torch")
@@ -173,15 +185,37 @@ def run_synthetic_grpo(model_name: str = DEFAULT_MODEL_NAME, output_dir: str = "
 def main() -> None:
     parser = argparse.ArgumentParser(description="Smoke-test the Toronto GPU/model path")
     parser.add_argument("--model", default=DEFAULT_MODEL_NAME)
+    parser.add_argument("--profile", default="stage", choices=("stage", "full"))
     parser.add_argument("--num-completions", type=int, default=4)
     parser.add_argument("--max-new-tokens", type=int, default=192)
     parser.add_argument("--remote", action="store_true", help="run this smoke check in Daytona")
-    parser.add_argument("--snapshot", default="daytona-gpu")
+    parser.add_argument("--gpu-type", default="RTX-PRO-6000")
+    parser.add_argument(
+        "--show-build-logs", action="store_true", help="stream Daytona image build logs"
+    )
     parser.add_argument("--keep", action="store_true", help="keep the remote sandbox after the run")
     parser.add_argument("--inspect-trl", action="store_true", help="print installed TRL signatures")
     parser.add_argument("--synthetic-grpo", action="store_true", help="run one GRPO step without Daytona")
     parser.add_argument("--real-grpo-smoke", action="store_true", help="run one GRPO step with Daytona rewards")
+    parser.add_argument("--sweep", action="store_true", help="run the independent GRPO parameter sweep")
+    parser.add_argument("--pool-size", type=int, default=None, help="CPU grader sandboxes for real GRPO")
+    parser.add_argument("--train-steps", type=int, default=None, help="GRPO optimizer steps")
+    parser.add_argument("--eval-samples", type=int, default=None, help="baseline/final samples")
+    parser.add_argument("--seed", type=int, default=42, help="baseline/final sampling seed")
+    parser.add_argument("--task-id", default="fizzbuzz_plus", help="task YAML id")
+    parser.add_argument("--learning-rate", type=float, default=5e-6, help="GRPO learning rate")
+    parser.add_argument("--train-batch-size", type=int, default=None, help="prompts per GRPO update")
+    parser.add_argument("--max-completion-length", type=int, default=None)
+    parser.add_argument("--baseline-only", action="store_true")
     args = parser.parse_args()
+    from trainer.config import get_profile
+
+    profile = get_profile(args.profile)
+    args.pool_size = args.pool_size or profile.pool_size
+    args.train_steps = args.train_steps or profile.train_steps
+    args.eval_samples = args.eval_samples or profile.eval_samples
+    args.train_batch_size = args.train_batch_size or profile.train_batch_size
+    args.max_completion_length = args.max_completion_length or profile.max_completion_length
 
     if args.remote:
         asyncio.run(run_remote(args))
@@ -199,8 +233,8 @@ def main() -> None:
     if args.synthetic_grpo:
         run_synthetic_grpo(args.model)
         return
-    if args.real_grpo_smoke:
-        raise RuntimeError("--real-grpo-smoke must be used with --remote")
+    if args.real_grpo_smoke or args.sweep:
+        raise RuntimeError("--real-grpo-smoke and --sweep must be used with --remote")
 
     model, tokenizer = load_model(args.model)
     completions = generate_completions(
@@ -212,16 +246,22 @@ def main() -> None:
 
 async def run_remote(args: argparse.Namespace) -> None:
     """Provision a GPU sandbox and execute this file inside it."""
-    from .daytona import DaytonaRunner, SandboxSpec
+    if args.real_grpo_smoke or args.sweep:
+        validate_real_smoke_entrypoint()
+    from .daytona import DaytonaRunner, SandboxSpec, build_gpu_image
 
     runner = DaytonaRunner()
     sandbox = None
     try:
         sandbox = await runner.create(
             SandboxSpec(
-                snapshot=args.snapshot,
+                image=build_gpu_image(),
                 name=f"toronto-gpu-smoke-{uuid.uuid4().hex[:8]}",
+                gpu=1,
+                gpu_type=args.gpu_type,
                 ephemeral=True,
+                timeout_seconds=1800,
+                show_build_logs=args.show_build_logs,
             )
         )
         print(f"Created remote sandbox: {getattr(sandbox, 'id', 'unknown')}")
@@ -236,10 +276,27 @@ async def run_remote(args: argparse.Namespace) -> None:
             command += " --inspect-trl"
         if args.synthetic_grpo:
             command += " --synthetic-grpo"
-        if args.real_grpo_smoke:
+        if args.real_grpo_smoke or args.sweep:
             remote_root = "/tmp/toronto"
             await runner.upload_tree(sandbox, Path(__file__).parents[1], remote_root)
-            command = f"cd {remote_root} && PYTHONPATH={remote_root} python -m trainer.smoke --pool-size 2"
+        if args.sweep:
+                command = (
+                    f"cd {remote_root} && PYTHONPATH={remote_root} python -m trainer.sweep "
+                    f"--pool-size {args.pool_size} --eval-samples {args.eval_samples} "
+                    f"--seed {args.seed} --task-id {args.task_id} "
+                    f"--output-root /tmp/toronto-grpo-sweep"
+                )
+        else:
+            command = (
+                f"cd {remote_root} && PYTHONPATH={remote_root} python -m trainer.smoke "
+                f"--pool-size {args.pool_size} --train-steps {args.train_steps} "
+                f"--eval-samples {args.eval_samples} --seed {args.seed} "
+                f"--task-id {args.task_id} --learning-rate {args.learning_rate} "
+                f"--train-batch-size {args.train_batch_size} "
+                f"--max-completion-length {args.max_completion_length}"
+            )
+            if args.baseline_only:
+                command += " --baseline-only"
         remote_env = {}
         for name in ("DAYTONA_API_KEY", "HF_TOKEN"):
             if value := os.getenv(name):

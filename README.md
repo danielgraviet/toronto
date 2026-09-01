@@ -84,6 +84,43 @@ Audience vote → lock task + λ knobs
      → stream metrics/grid/best-code → UI
 ```
 
+## Stage rehearsal
+
+The stage profile uses one short run instead of a parameter sweep:
+
+~~~
+uv run python -m scripts.warm_pool --profile stage
+uv run python -m runners.gpu --remote --real-grpo-smoke \
+  --profile stage --gpu-type RTX-PRO-6000 --task-id two_sum_plus
+~~~
+
+It uses 16 CPU graders, 4 GRPO steps, 16 baseline/holdout samples, and a
+192-token completion limit. The warm command verifies Daytona capacity and
+releases its probe sandboxes; the training process creates and owns the pool
+used for grading. Keep a successful rehearsal event log as the offline ghost
+fallback.
+
+## Frontend rehearsal
+
+The static stage UI works without the control API and simulates the complete
+story so buttons can be rehearsed offline:
+
+    uv run python -m http.server 4173 --directory ui
+
+Open http://localhost:4173 and use Run baseline, Train 4 steps, or Ghost
+replay. To point the same UI at a future control API, open it with an api
+query parameter, for example:
+
+    http://localhost:4173/?api=http://localhost:8080
+
+For real Daytona execution, use two terminals:
+
+    make backend
+    make ui
+
+Then open http://localhost:4173/?api=http://localhost:8080. The API process
+starts the real GPU runner; the browser never receives Daytona or HF secrets.
+
 ## License / talk credit
 
 Internal demo for Daytona talk by Daniel (Thi) Graviet. Not a public product.

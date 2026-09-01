@@ -14,6 +14,25 @@ prompt: |
 
   def parse_int_csv(s: str) -> list[int]:
       """Parse a comma-separated list of integers."""
+prompt_variants:
+  - |
+    # Write parse_int_csv. Split a comma-separated string into integers.
+    # Trim each item, reject blank or non-integer items with ValueError, and
+    # do not use eval, exec, ast.literal_eval, files, or network access.
+    def parse_int_csv(s: str) -> list[int]:
+        """Parse CSV integer text safely."""
+  - |
+    # Implement a safe CSV integer decoder.
+    # "1, 2, -3" becomes [1, 2, -3]. Whitespace is ignored, but empty or
+    # invalid fields raise ValueError. Parse manually without eval or imports.
+    def parse_int_csv(s: str) -> list[int]:
+        """Decode comma-separated integers."""
+  - |
+    # Complete this pure-Python parser for comma-delimited integers.
+    # Accept signs and surrounding whitespace. Every field must be an integer;
+    # blank fields and invalid text must raise ValueError.
+    def parse_int_csv(s: str) -> list[int]:
+        """Return the integers encoded in s."""
 banned_patterns:
   - "eval("
   - "exec("
@@ -35,6 +54,25 @@ error_tests:
   - { input: "1,,2", raises: ValueError }
   - { input: "1,2,x", raises: ValueError }
   - { input: "", raises: ValueError }
+holdout_tests:
+  - { input: " 7 ", output: [7] }
+  - { input: "10, 20,30", output: [10, 20, 30] }
+  - { input: "-1,+2,003", output: [-1, 2, 3] }
+  - { input: " 0 ", output: [0] }
+holdout_error_tests:
+  - { input: "1, ,3", raises: ValueError }
+  - { input: "abc", raises: ValueError }
+  - { input: "1,2,", raises: ValueError }
+validation_tests:
+  - { input: "-8, 9", output: [-8, 9] }
+  - { input: "5,6,7,8", output: [5, 6, 7, 8] }
+  - { input: " 11 ", output: [11] }
+  - { input: "+12,-13", output: [12, -13] }
+validation_error_tests:
+  - { input: ",", raises: ValueError }
+  - { input: "1,two", raises: ValueError }
+  - { input: "1,,3", raises: ValueError }
+reward_weights: [1, 1, 1, 1, 2, 2, 2]
 reference: |
   def parse_int_csv(s: str) -> list[int]:
       if s.strip() == "":

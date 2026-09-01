@@ -15,12 +15,12 @@ from dotenv import load_dotenv
 class SandboxSpec:
     """How Daytona should provision one sandbox.
 
-    ``snapshot`` and ``image`` are mutually exclusive. A snapshot is the
-    preferred option for the GPU because it contains the preinstalled stack.
+    ``snapshot`` and ``image`` are mutually exclusive. An ``image`` may be a
+    registry image string or a declarative Daytona ``Image`` object.
     """
 
     snapshot: str | None = None
-    image: str | None = None
+    image: Any | None = None
     name: str | None = None
     cpu: int | None = None
     memory: int | None = None
@@ -29,10 +29,33 @@ class SandboxSpec:
     gpu_type: str | None = None
     ephemeral: bool = False
     timeout_seconds: int = 120
+    show_build_logs: bool = False
 
     def __post_init__(self) -> None:
         if bool(self.snapshot) == bool(self.image):
             raise ValueError("Set exactly one of snapshot or image")
+
+
+def build_gpu_image() -> Any:
+    """Build the GPU environment declaratively for RTX PRO 6000 sandboxes."""
+    import daytona
+
+    return (
+        daytona.Image.base("pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime")
+        .pip_install(
+            "daytona>=0.207.0",
+            "transformers==5.9.0",
+            "trl==1.5.0",
+            "datasets",
+            "accelerate",
+            "peft",
+            "bitsandbytes",
+            "PyYAML",
+            "python-dotenv",
+            extra_options="--break-system-packages",
+        )
+        .workdir("/tmp/toronto")
+    )
 
 
 class DaytonaRunner:
@@ -72,12 +95,13 @@ class DaytonaRunner:
                 auto_delete_interval=0 if spec.ephemeral else None,
             )
         else:
+            gpu_type = daytona.GpuType(spec.gpu_type) if spec.gpu_type else None
             resources = daytona.Resources(
                 cpu=spec.cpu,
                 memory=spec.memory,
                 disk=spec.disk,
                 gpu=spec.gpu,
-                gpu_type=spec.gpu_type,
+                gpu_type=gpu_type,
             )
             params = daytona.CreateSandboxFromImageParams(
                 image=spec.image,
@@ -87,7 +111,12 @@ class DaytonaRunner:
                 ephemeral=spec.ephemeral,
                 auto_delete_interval=0 if spec.ephemeral else None,
             )
-        return await self._client.create(params, timeout=spec.timeout_seconds)
+        create_options: dict[str, Any] = {"timeout": spec.timeout_seconds}
+        if spec.show_build_logs:
+            create_options["on_snapshot_create_logs"] = lambda chunk: print(
+                chunk, end="", flush=True
+            )
+        return await self._client.create(params, **create_options)
 
     async def delete(self, sandbox: Any, timeout_seconds: int = 60) -> None:
         await sandbox.delete(timeout=timeout_seconds)
@@ -95,15 +124,27 @@ class DaytonaRunner:
     async def run_code(self, sandbox: Any, code: str, timeout_seconds: int = 30) -> Any:
         return await sandbox.code_interpreter.run_code(code, timeout=timeout_seconds)
 
-    async def upload(self, sandbox: Any, local_path: str | Path, remote_path: str, timeout_seconds: int = 60) -> None:
-        await sandbox.fs.upload_file(str(local_path), remote_path, timeout=timeout_seconds)
+    async def upload(self, sandbox: Any, local_path: str | Path, remote_path: str, timeout_seconds: int = 180) -> None:
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                await sandbox.fs.upload_file(
+                    str(local_path), remote_path, timeout=timeout_seconds
+                )
+                return
+            except Exception as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(2**attempt)
+        assert last_error is not None
+        raise last_error
 
     async def upload_tree(
         self,
         sandbox: Any,
         local_root: str | Path,
         remote_root: str,
-        timeout_seconds: int = 60,
+        timeout_seconds: int = 180,
     ) -> None:
         """Upload source/task files without uploading secrets or caches."""
         root = Path(local_root)
