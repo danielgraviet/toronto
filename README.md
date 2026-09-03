@@ -1,5 +1,8 @@
 # Teach It in Public: 500 Tiny Universes
 
+make live
+make demo
+
 Live demo + talk system for a **15-minute** Toronto AI Engineering talk (Daytona.io).
 
 The audience co-designs a reward for a coding puzzle. A **weak model** is GRPO-finetuned live. Completions are graded in parallel **CPU Daytona sandboxes**. The trainer runs on a **Daytona GPU sandbox** (H100).
