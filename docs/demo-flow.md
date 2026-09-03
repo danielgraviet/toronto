@@ -1,33 +1,43 @@
-# Demo flow (15:00) — product ↔ talk mapping
+# Demo flow (15:00) · product ↔ talk mapping
 
-Talk title working name: **Teach It in Public: 500 Tiny Universes**
+Talk title: **Teach It in Public**
 
-This maps speaker beats to system calls. Full verbal outline lives with the speaker; this is the engineering companion.
+Speaker notes live in [`talk-script-15m.md`](talk-script-15m.md). Slides live in [`../talk/index.html`](../talk/index.html). This file is the engineering companion.
+
+Talk day training path is **HF**: `make demo`.
 
 | Time | Beat | System |
 |------|------|--------|
-| 0:00–1:30 | Hook; show 1 tile → grid | UI idle animation or pre-warmed grid heartbeat |
-| 1:30–3:30 | Explain GENERATE→EVALUATE→REWARD→UPDATE | Static diagram overlay optional; grid visible |
-| 3:30–5:00 | Audience picks puzzle + knobs | Operator: `POST /task/lock`, `POST /reward/knobs` |
-| 5:00–6:30 | Baseline ("before") | `POST /baseline` → mostly red grid; pin one funny failure |
-| 6:30–11:00 | Live teach | `POST /train` steps=1 repeated; pause once to change knobs mid-run |
-| 11:00–13:00 | After photo | Side-by-side baseline vs latest best; curve final point |
-| 13:00–15:00 | Punchline + handoff to next speaker | Idle grid; stop training |
+| 0:00–1:30 | Hook. Finetuning can be approachable on Daytona. | Slides (Go live). CLI idle. |
+| 1:30–3:00 | RL intuition and Toronto thread | Slides |
+| 3:00–5:30 | Five words as separate visual slides | Slides 3 to 7 |
+| 5:30–8:30 | Human GRPO with Two Sum (four approaches, live scores) | Slide 8. **Around 7:00 start `make demo`.** |
+| 8:30–10:30 | Daytona stack plus wider primitive | Slides 9 and 10. Narrate spin-up if CLI is still provisioning. |
+| 10:30–13:30 | Live CLI window | Rich demo UI. Baseline, training steps, finale. |
+| 13:30–15:00 | Mantras and questions | Keep finale on screen. |
 
-## Mid-talk knob flip
+## Why start the demo early
 
-Around 8:30 speaker may increase `lambda_ban`. Implement so in-flight step finishes, then next step uses new knobs. Emit `log` event explaining the change for the UI banner.
+GPU provision, model load, and pool warm often take **1 to 3+ minutes** before baseline. Measured HF phases after rollouts begin are about **56 seconds** total. Start `make demo` near minute seven so spin-up overlaps the audience game and the stack section.
 
-## Failure behavior during beats
+## Mid-talk cues
+
+| Clock | Action |
+|------:|--------|
+| ~7:00 | `make demo` on the second display |
+| ~10:30 | Turn the room to the CLI |
+| >90s hung step | Stop. Ghost replay or prior finale. |
+
+## Failure behavior
 
 | Failure | Operator action |
 |---------|-----------------|
-| Train step hangs &gt; 90s | `/stop`, skip to checkpoint after, or ghost |
-| Pool depleted | show warning; eval with remaining; don't crash UI |
-| Wi-Fi dies | local ghost mode on laptop (bundle ghost+UI statically if possible) |
+| Train step hangs past about 90s | Stop. Skip to ghost or a saved finale. |
+| Pool depleted | Warn. Grade with remaining sandboxes. Keep the UI alive. |
+| Wi-Fi dies | Local ghost mode on the laptop. |
 
-## What "success" looks like on screen
+## What success looks like on screen
 
-- Baseline pass rate clearly low (e.g. &lt; 30%)
-- Final pass rate clearly higher (e.g. &gt; 60%) on **same** task
-- At least one before/after code pair readable on projector
+- Baseline pass rate clearly lower than the trained policy on the same task
+- At least one readable before and after completion
+- Audience can repeat collect → reward → update

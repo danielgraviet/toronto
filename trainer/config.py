@@ -20,7 +20,7 @@ PROFILES = {
     "stage": RunProfile(
         name="stage",
         pool_size=16,
-        train_steps=4,
+        train_steps=6,
         eval_samples=16,
         train_batch_size=16,
         max_completion_length=192,

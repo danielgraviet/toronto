@@ -6,12 +6,13 @@ import argparse
 import asyncio
 import importlib
 import os
+import shlex
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
-
-
 
 DEFAULT_MODEL_NAME = "Qwen/Qwen2.5-0.5B"
 DEFAULT_PROMPT = '''# FizzBuzz with a Daytona twist.
@@ -56,16 +57,52 @@ def inspect_gpu() -> GPUInfo:
     )
 
 
-def check_imports() -> dict[str, str]:
+def check_imports(*, require_vllm: bool = False) -> dict[str, str]:
     """Return versions for the libraries needed by the GPU path."""
+    modules = ("torch", "transformers", "trl", "daytona")
+    if require_vllm:
+        modules = (*modules, "vllm")
     versions: dict[str, str] = {}
-    for module_name in ("torch", "transformers", "trl", "daytona"):
+    for module_name in modules:
         try:
             module = importlib.import_module(module_name)
         except ImportError as exc:
             raise RuntimeError(f"Required module is unavailable: {module_name}") from exc
         versions[module_name] = str(getattr(module, "__version__", "unknown"))
     return versions
+
+
+def remote_preflight_script(generation_backend: str | None = None) -> str:
+    """Python source run inside the GPU sandbox before a long training job."""
+    from trainer.generation import get_generation_config
+
+    backend = get_generation_config(generation_backend).backend
+    lines = [
+        "import importlib",
+        'importlib.import_module("torch")',
+        'importlib.import_module("transformers")',
+        'importlib.import_module("trl")',
+    ]
+    if backend == "vllm":
+        lines.extend(
+            [
+                'importlib.import_module("vllm")',
+                "from trl.trainer.grpo_trainer import GRPOTrainer",
+            ]
+        )
+    else:
+        lines.append("from trl import GRPOTrainer")
+    lines.append('print("preflight_ok")')
+    return "\n".join(lines)
+
+
+def format_remote_failure(log_text: str, *, tail_lines: int = 40) -> str:
+    """Extract the most useful lines from a remote trainer log."""
+    lines = [line for line in log_text.splitlines() if line.strip()]
+    if not lines:
+        return "Remote trainer exited before reporting completion (empty log)"
+    tail = lines[-tail_lines:]
+    return "Remote trainer failed:\n" + "\n".join(tail)
 
 
 def load_model(model_name: str = DEFAULT_MODEL_NAME) -> tuple[Any, Any]:
@@ -139,6 +176,7 @@ def run_synthetic_grpo(model_name: str = DEFAULT_MODEL_NAME, output_dir: str = "
     torch = importlib.import_module("torch")
     datasets = importlib.import_module("datasets")
     trl = importlib.import_module("trl")
+    from trainer.generation import get_generation_config, grpo_generation_kwargs
 
     model, tokenizer = load_model(model_name)
     if tokenizer.pad_token_id is None:
@@ -167,8 +205,8 @@ def run_synthetic_grpo(model_name: str = DEFAULT_MODEL_NAME, output_dir: str = "
         logging_steps=1,
         report_to="none",
         bf16=torch.cuda.is_available(),
-        use_vllm=False,
         gradient_checkpointing=True,
+        **grpo_generation_kwargs(get_generation_config()),
     )
     trainer = trl.GRPOTrainer(
         model=model,
@@ -194,6 +232,7 @@ def main() -> None:
         "--show-build-logs", action="store_true", help="stream Daytona image build logs"
     )
     parser.add_argument("--keep", action="store_true", help="keep the remote sandbox after the run")
+    parser.add_argument("--sandbox-id", help="reuse an existing remote GPU sandbox")
     parser.add_argument("--inspect-trl", action="store_true", help="print installed TRL signatures")
     parser.add_argument("--synthetic-grpo", action="store_true", help="run one GRPO step without Daytona")
     parser.add_argument("--real-grpo-smoke", action="store_true", help="run one GRPO step with Daytona rewards")
@@ -207,6 +246,12 @@ def main() -> None:
     parser.add_argument("--train-batch-size", type=int, default=None, help="prompts per GRPO update")
     parser.add_argument("--max-completion-length", type=int, default=None)
     parser.add_argument("--baseline-only", action="store_true")
+    parser.add_argument(
+        "--generation-backend",
+        choices=("hf", "vllm"),
+        default=None,
+        help="GRPO rollout backend (default: TORONTO_GENERATION_BACKEND or hf)",
+    )
     args = parser.parse_args()
     from trainer.config import get_profile
 
@@ -244,7 +289,57 @@ def main() -> None:
         print(f"\n--- completion {index} ---\n{completion}")
 
 
-async def run_remote(args: argparse.Namespace) -> None:
+async def tail_progress_file(
+    runner: Any,
+    sandbox: Any,
+    progress_file: str,
+    *,
+    on_line: Callable[[str], None] | None = None,
+    poll_interval: float = 1.0,
+    pid: str | None = None,
+    deadline_seconds: float = 900,
+) -> bool:
+    """Tail remote JSONL progress until complete or trainer exits."""
+    seen = 0
+    finished = False
+    deadline = time.monotonic() + deadline_seconds
+    while time.monotonic() < deadline:
+        progress_response = await runner.exec(
+            sandbox,
+            f"cat {shlex.quote(progress_file)} 2>/dev/null || true",
+            timeout_seconds=30,
+        )
+        progress = _response_text(progress_response)
+        lines = progress.splitlines()
+        for line in lines[seen:]:
+            if on_line is not None:
+                on_line(line)
+            else:
+                print(line, flush=True)
+            if '"event": "complete"' in line:
+                finished = True
+        seen = len(lines)
+        if finished:
+            return True
+        if pid is not None:
+            running_response = await runner.exec(
+                sandbox,
+                f"kill -0 {shlex.quote(pid)} 2>/dev/null && echo RUNNING || echo DONE",
+                timeout_seconds=30,
+            )
+            if _response_text(running_response).strip().endswith("DONE"):
+                break
+        await asyncio.sleep(poll_interval)
+    return finished
+
+
+async def run_remote(
+    args: argparse.Namespace,
+    *,
+    on_progress_line: Callable[[str], None] | None = None,
+    poll_interval: float = 1.0,
+    quiet_progress: bool = False,
+) -> None:
     """Provision a GPU sandbox and execute this file inside it."""
     if args.real_grpo_smoke or args.sweep:
         validate_real_smoke_entrypoint()
@@ -253,18 +348,26 @@ async def run_remote(args: argparse.Namespace) -> None:
     runner = DaytonaRunner()
     sandbox = None
     try:
-        sandbox = await runner.create(
-            SandboxSpec(
-                image=build_gpu_image(),
-                name=f"toronto-gpu-smoke-{uuid.uuid4().hex[:8]}",
-                gpu=1,
-                gpu_type=args.gpu_type,
-                ephemeral=True,
-                timeout_seconds=1800,
-                show_build_logs=args.show_build_logs,
+        if args.sandbox_id:
+            sandbox = await runner.get(args.sandbox_id)
+            print(f"Reusing remote sandbox: {getattr(sandbox, 'id', args.sandbox_id)}", flush=True)
+        else:
+            sandbox = await runner.create(
+                SandboxSpec(
+                    image=build_gpu_image(),
+                    name=f"toronto-gpu-smoke-{uuid.uuid4().hex[:8]}",
+                    gpu=1,
+                    gpu_type=args.gpu_type,
+                    # Daytona GPU sandboxes are required to be ephemeral.
+                    # --keep prevents this command from deleting it so the
+                    # API can reuse the sandbox for later requests.
+                    ephemeral=True,
+                    timeout_seconds=1800,
+                    show_build_logs=args.show_build_logs,
+                )
             )
-        )
-        print(f"Created remote sandbox: {getattr(sandbox, 'id', 'unknown')}")
+        if not args.sandbox_id:
+            print(f"Created remote sandbox: {getattr(sandbox, 'id', 'unknown')}", flush=True)
         local_file = __file__
         remote_file = "/tmp/toronto_gpu.py"
         await runner.upload(sandbox, local_file, remote_file)
@@ -279,45 +382,109 @@ async def run_remote(args: argparse.Namespace) -> None:
         if args.real_grpo_smoke or args.sweep:
             remote_root = "/tmp/toronto"
             await runner.upload_tree(sandbox, Path(__file__).parents[1], remote_root)
-        if args.sweep:
-                command = (
-                    f"cd {remote_root} && PYTHONPATH={remote_root} python -m trainer.sweep "
-                    f"--pool-size {args.pool_size} --eval-samples {args.eval_samples} "
-                    f"--seed {args.seed} --task-id {args.task_id} "
-                    f"--output-root /tmp/toronto-grpo-sweep"
+        remote_env = {}
+        for name in ("DAYTONA_API_KEY", "HF_TOKEN", "TORONTO_GENERATION_BACKEND"):
+            if value := os.getenv(name):
+                remote_env[name] = value
+        if args.real_grpo_smoke and not args.sweep:
+            preflight = remote_preflight_script(getattr(args, "generation_backend", None))
+            preflight_response = await runner.exec(
+                sandbox,
+                f"python -c {shlex.quote(preflight)}",
+                timeout_seconds=120,
+                env=remote_env or None,
+            )
+            preflight_output = _response_text(preflight_response)
+            if getattr(preflight_response, "exit_code", 0) not in (0, None):
+                raise RuntimeError(format_remote_failure(preflight_output))
+            if "preflight_ok" not in preflight_output:
+                raise RuntimeError(
+                    format_remote_failure(preflight_output or "GPU preflight did not report success")
                 )
-        else:
+        if args.sweep:
             command = (
-                f"cd {remote_root} && PYTHONPATH={remote_root} python -m trainer.smoke "
+                f"cd {remote_root} && PYTHONPATH={remote_root} python -m trainer.sweep "
+                f"--pool-size {args.pool_size} --eval-samples {args.eval_samples} "
+                f"--seed {args.seed} --task-id {args.task_id} "
+                f"--output-root /tmp/toronto-grpo-sweep"
+            )
+        elif args.real_grpo_smoke:
+            command = (
+                f"cd {remote_root} && PYTHONPATH={remote_root} python -u -m trainer.smoke "
                 f"--pool-size {args.pool_size} --train-steps {args.train_steps} "
                 f"--eval-samples {args.eval_samples} --seed {args.seed} "
                 f"--task-id {args.task_id} --learning-rate {args.learning_rate} "
                 f"--train-batch-size {args.train_batch_size} "
                 f"--max-completion-length {args.max_completion_length}"
             )
+            progress_file = f"/tmp/toronto-progress-{uuid.uuid4().hex}.jsonl"
+            command += f" --progress-file {progress_file}"
             if args.baseline_only:
                 command += " --baseline-only"
-        remote_env = {}
-        for name in ("DAYTONA_API_KEY", "HF_TOKEN"):
-            if value := os.getenv(name):
-                remote_env[name] = value
-        response = await runner.exec(
-            sandbox, command, timeout_seconds=900, env=remote_env or None
-        )
-        output = getattr(response, "result", None)
-        if output is None:
-            artifacts = getattr(response, "artifacts", None)
-            output = getattr(artifacts, "stdout", None) if artifacts else None
-        print(output if output is not None else response)
+            if getattr(args, "generation_backend", None):
+                command += f" --generation-backend {args.generation_backend}"
+        if args.real_grpo_smoke and not args.sweep:
+            log_file = f"{progress_file}.log"
+            launch = (
+                f"rm -f {shlex.quote(progress_file)} {shlex.quote(log_file)}; "
+                f"nohup sh -c {shlex.quote(command)} > {shlex.quote(log_file)} 2>&1 & "
+                "echo $!"
+            )
+            launch_response = await runner.exec(
+                sandbox, launch, timeout_seconds=30, env=remote_env or None
+            )
+            pid = _response_text(launch_response).strip().splitlines()[-1]
+            if not quiet_progress:
+                print(f"Started remote trainer process: {pid}", flush=True)
+
+            def emit_line(line: str) -> None:
+                if on_progress_line is not None:
+                    on_progress_line(line)
+                if not quiet_progress:
+                    print(line, flush=True)
+
+            finished = await tail_progress_file(
+                runner,
+                sandbox,
+                progress_file,
+                on_line=emit_line,
+                poll_interval=poll_interval,
+                pid=pid,
+            )
+            response = await runner.exec(
+                sandbox,
+                f"cat {shlex.quote(log_file)} 2>/dev/null || true",
+                timeout_seconds=30,
+            )
+            if not finished:
+                raise RuntimeError(format_remote_failure(_response_text(response)))
+        else:
+            response = await runner.exec(
+                sandbox, command, timeout_seconds=900, env=remote_env or None
+            )
+        output = _response_text(response)
+        # Progress events have already been emitted line-by-line. Avoid
+        # replaying the final log, which would make the API count each step
+        # twice; only dump it for the non-progress execution path.
+        if not (args.real_grpo_smoke and not args.sweep and finished):
+            print(output, flush=True)
         if getattr(response, "exit_code", 0) not in (0, None):
             raise RuntimeError(f"Remote GPU smoke command failed with exit code {response.exit_code}")
     finally:
         if sandbox is not None and args.keep:
             print("Keeping remote sandbox")
-        elif sandbox is not None:
+        elif sandbox is not None and not args.sandbox_id:
             await runner.delete(sandbox)
             print("Deleted remote sandbox")
         await runner.close()
+
+
+def _response_text(response: Any) -> str:
+    output = getattr(response, "result", None)
+    if output is None:
+        artifacts = getattr(response, "artifacts", None)
+        output = getattr(artifacts, "stdout", None) if artifacts else None
+    return str(output if output is not None else response)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+{"event": "model_loading"}
+{"event": "model_ready"}
+{"event": "pool_warming", "requested": 16}
+{"event": "pool_ready", "healthy": 16, "requested": 16}
+{"event": "baseline_started"}
+{"event": "generation_started", "phase": "baseline", "count": 16}
+{"event": "generation_finished", "phase": "baseline", "count": 16}
+{"event": "grading_started", "phase": "baseline", "count": 16}
+{"event": "rollout_reward", "index": 0, "reward": -1.0, "num_passed": 0, "num_tests": 6, "duration_ms": 120, "banned": false, "error": null, "completion_preview": "def two_sum(nums, target):\n    pass", "phase": "baseline"}
+{"event": "baseline_finished", "pass_rate": 0.12, "sample_completion": "def two_sum(nums, target):\n    pass", "sample_reward": -1.0}
+{"event": "training_started", "steps": 6}
+{"event": "step_started", "step": 1, "total_steps": 6, "count": 4}
+{"event": "step_evaluated", "step": 1, "pass_rate": 0.18, "mean_reward": 0.025}
+{"event": "step_evaluated", "step": 6, "pass_rate": 0.41, "mean_reward": 0.22}
+{"event": "best_completion", "completion": "def two_sum(nums, target):\n    seen = {}\n    for i, n in enumerate(nums):\n        if target - n in seen:\n            return [seen[target - n], i]\n        seen[n] = i\n    return []", "reward": 0.82, "pass_rate": 0.45, "holdout_pass_rate": 0.52, "baseline_pass_rate": 0.12, "checkpoint": "checkpoint-6", "best_step": 6, "train_steps": 6, "learning_rate": 5e-6, "source": "checkpoint"}
+{"event": "complete", "train_steps": 6, "pool_size": 16, "eval_samples": 16}

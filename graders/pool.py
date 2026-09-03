@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -93,6 +94,7 @@ class DaytonaGraderPool:
         completions: list[str],
         prompts: list[str],
         tasks: list[Task] | None = None,
+        on_result: Callable[[int, EvalResult], None] | None = None,
     ) -> list[EvalResult]:
         if not self._started:
             await self.start()
@@ -103,7 +105,7 @@ class DaytonaGraderPool:
         if tasks is not None and len(tasks) != len(prompts):
             raise ValueError("tasks and prompts must have equal length")
 
-        async def evaluate_at(index: int, completion: str, prompt: str) -> EvalResult:
+        async def evaluate_at(index: int, completion: str, prompt: str) -> tuple[int, EvalResult]:
             # Modulo wraps indices back to the first slot, producing an even
             # round-robin assignment: 0, 1, ..., N-1, 0, 1, ...
             slot = self._slots[index % len(self._slots)]
@@ -111,11 +113,21 @@ class DaytonaGraderPool:
             # sandbox concurrently. Different slots still run in parallel.
             async with slot.gate:
                 task = tasks[index] if tasks is not None else None
-                return await self._evaluate_one(slot.sandbox, completion, prompt, task)
+                result = await self._evaluate_one(slot.sandbox, completion, prompt, task)
+                return index, result
 
-        return list(await asyncio.gather(
-            *(evaluate_at(index, completion, prompt) for index, (completion, prompt) in enumerate(zip(completions, prompts)))
-        ))
+        tasks_by_index = [
+            evaluate_at(index, completion, prompt)
+            for index, (completion, prompt) in enumerate(zip(completions, prompts))
+        ]
+        results: list[EvalResult | None] = [None] * len(completions)
+        for finished in asyncio.as_completed(tasks_by_index):
+            index, result = await finished
+            results[index] = result
+            if on_result is not None:
+                on_result(index, result)
+        assert all(item is not None for item in results)
+        return results  # type: ignore[return-value]
 
     async def _evaluate_one(
         self, sandbox: Any, completion: str, prompt: str, task: Task | None = None

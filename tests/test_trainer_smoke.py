@@ -12,7 +12,7 @@ def test_stage_profile_is_short_and_stage_sized() -> None:
     profile = get_profile("stage")
 
     assert profile.pool_size == 16
-    assert profile.train_steps == 4
+    assert profile.train_steps == 6
     assert profile.eval_samples == 16
     assert profile.train_batch_size == 16
     assert profile.max_completion_length == 192

@@ -84,6 +84,51 @@ Audience vote → lock task + λ knobs
      → stream metrics/grid/best-code → UI
 ```
 
+## Talk day CLI demo
+
+For the live talk, open the slide deck and the HF CLI demo side by side.
+
+    make talk
+    make demo
+
+Slides: http://localhost:4174 (click **Go live**). Speaker notes:
+[`docs/talk-script-15m.md`](docs/talk-script-15m.md). Start `make demo` around
+minute seven so GPU spin-up overlaps the Two Sum audience game.
+
+Equivalent CLI only:
+
+    uv run python -m demo
+
+Requires `DAYTONA_API_KEY` (and optionally `HF_TOKEN`) in the environment.
+Use a large terminal font on stage (for example 18–20pt in iTerm or Terminal.app).
+
+The CLI shows rollout batches, per-trajectory returns, and a learning curve in
+classic RL language: collect rollouts → compute returns → policy update.
+
+### Speed comparison (HF vs vLLM)
+
+GRPO **training rollouts** can use colocated vLLM (TRL) or Hugging Face
+`generate` (default). Baseline and eval paths always use HF.
+
+| Command | GRPO rollouts |
+|---------|---------------|
+| `make demo` | HF (default) |
+| `make demo-vllm` | vLLM colocate |
+
+Or set `TORONTO_GENERATION_BACKEND=vllm` before `make demo`. The finale screen
+shows a per-phase **Speed breakdown** table for A/B comparison. Tune VRAM with
+`TORONTO_VLLM_GPU_MEMORY_UTILIZATION` (default `0.3`) if you hit OOM on rehearsal.
+
+### Catching GPU stack errors before talk day
+
+| Layer | Command | What it catches |
+|-------|---------|-----------------|
+| CI (no GPU) | `make test` | Image spec drift (CUDA 13 base, vLLM pin), preflight script shape, config wiring |
+| Remote preflight | automatic before `make demo` | Missing vLLM, `libcudart.so.13` mismatch, TRL import failures (~2 min, not 30 min into a run) |
+| Remote smoke | `make smoke-remote-vllm` | Full one-step GRPO with vLLM rollouts on Daytona |
+
+`make test` includes `validate_gpu_image_spec()` so regressions like dropping `vllm` or reverting to CUDA 12.8 fail in CI. Remote preflight runs the same imports TRL needs for vLLM **before** baseline grading starts. If training still fails, the CLI now raises with the last lines of the remote log instead of a generic exit message.
+
 ## Stage rehearsal
 
 The stage profile uses one short run instead of a parameter sweep:
@@ -119,7 +164,17 @@ For real Daytona execution, use two terminals:
     make ui
 
 Then open http://localhost:4173/?api=http://localhost:8080. The API process
-starts the real GPU runner; the browser never receives Daytona or HF secrets.
+starts the stage baseline as soon as it boots, so GPU provisioning and model
+startup happen while the UI is being opened. The API reuses that ephemeral GPU
+sandbox for the rest of the session and deletes it on shutdown. The baseline
+page shows the live warming/grading state; the browser never receives Daytona
+or HF secrets. To
+disable automatic startup while debugging, run TORONTO_AUTO_START=0 make
+backend.
+
+Stage mode intentionally runs 4 optimizer steps for a talk-length rehearsal.
+For the longer profile, start the API with TORONTO_PROFILE=full; the UI will
+show and request the full profile's 8 steps.
 
 ## License / talk credit
 

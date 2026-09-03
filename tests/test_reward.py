@@ -11,9 +11,18 @@ class FakePool:
         self.results = results
         self.received: tuple[list[str], list[str]] | None = None
 
-    async def evaluate_batch(self, completions: list[str], prompts: list[str]) -> list[EvalResult]:
+    async def evaluate_batch(
+        self,
+        completions: list[str],
+        prompts: list[str],
+        tasks=None,
+        on_result=None,
+    ) -> list[EvalResult]:
         self.received = (completions, prompts)
         await asyncio.sleep(0)
+        if on_result is not None:
+            for index, result in enumerate(self.results):
+                on_result(index, result)
         return self.results
 
 

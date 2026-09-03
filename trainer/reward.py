@@ -63,6 +63,7 @@ class DaytonaReward:
         observer: ResultObserver | None = None,
         batch_observer: BatchObserver | None = None,
         bridge: AsyncLoopBridge | None = None,
+        on_grading_started: Callable[[int], None] | None = None,
     ) -> None:
         self.pool = pool
         self.knobs = knobs or RewardKnobs()
@@ -70,6 +71,9 @@ class DaytonaReward:
         self.batch_observer = batch_observer
         self.bridge = bridge or AsyncLoopBridge()
         self._owns_bridge = bridge is None
+        self.on_grading_started = on_grading_started
+        self.grading_step: int | None = None
+        self.grading_phase: str = "training"
 
     @property
     def __name__(self) -> str:
@@ -78,11 +82,21 @@ class DaytonaReward:
 
     def __call__(self, prompts: list[str], completions: list[Any], **_: Any) -> list[float]:
         texts = [_completion_text(completion) for completion in completions]
-        results = self.bridge.run(self.pool.evaluate_batch(texts, prompts))
+        if self.on_grading_started:
+            self.on_grading_started(len(texts))
+        on_result = self.observer
+        if on_result is not None:
+            def stream_observer(index: int, result: EvalResult) -> None:
+                on_result(result, index)
+
+            stream_on_result: Callable[[int, EvalResult], None] | None = stream_observer
+        else:
+            stream_on_result = None
+        results = self.bridge.run(
+            self.pool.evaluate_batch(texts, prompts, on_result=stream_on_result)
+        )
         rewards: list[float] = []
-        for index, result in enumerate(results):
-            if self.observer:
-                self.observer(result, index)
+        for result in results:
             rewards.append(reward_for(result, self.knobs))
         if self.batch_observer:
             self.batch_observer(results, rewards)

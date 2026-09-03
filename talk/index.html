@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Teach It in Public</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,500;7..72,600&family=Sora:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="stage" id="stage">
+      <section class="cover active" id="cover" data-slide="cover">
+        <p class="eyebrow">Toronto AI Engineering meetup</p>
+        <h1>Teach It in Public</h1>
+        <p class="lede">
+          Finetune a weak coding model live with GRPO, score its answers in
+          Daytona sandboxes, and watch the policy improve in a few minutes.
+        </p>
+        <button type="button" class="go-live" id="go-live">Go live</button>
+        <p class="hint">Arrow keys move slides after you start. Esc leaves fullscreen.</p>
+      </section>
+
+      <section class="slide" data-slide="1" hidden>
+        <h2>Finetuning does not need a research lab</h2>
+        <p>
+          In the next fifteen minutes we will teach a small language model to
+          write better code for one puzzle. The trainer runs on a Daytona GPU
+          sandbox. The graders are ordinary CPU sandboxes that execute unit tests.
+        </p>
+        <p>
+          If you leave early, take this with you. You can own a real training
+          loop on infrastructure you understand.
+        </p>
+      </section>
+
+      <section class="slide" data-slide="2" hidden>
+        <h2>Reinforcement learning is older than chatbots</h2>
+        <p>
+          Long before language models, agents learned by acting in an
+          environment and receiving a score. Toronto has a deep streak of that
+          research history, from games to control to the models we use today.
+        </p>
+        <p>
+          Coding fits the same shape. The state is the unfinished program. The
+          action is the next token. The environment is a sandbox that runs tests
+          and returns a reward.
+        </p>
+      </section>
+
+      <section class="slide term-slide" data-slide="3" hidden id="policy-slide">
+        <p class="term-label">Policy</p>
+        <p class="term-def">
+          David Silver: a policy is the agent's behaviour. It is a map from state
+          to action, often a distribution over actions given a state.
+        </p>
+        <p class="term-scope">
+          In our demo the state is the text so far and each action is the next
+          token. Click through to watch that distribution change after every sample.
+        </p>
+        <figure class="viz policy-viz" id="policy-viz">
+          <p class="prompt-line" id="policy-prompt"></p>
+          <div class="chart" id="policy-chart" role="img" aria-label="Next token probabilities"></div>
+          <p class="policy-status" id="policy-status"></p>
+          <figcaption id="policy-caption"></figcaption>
+        </figure>
+      </section>
+
+      <section class="slide term-slide" data-slide="4" hidden>
+        <p class="term-label">Rollout</p>
+        <p class="term-def">
+          In reinforcement learning a rollout is one full trajectory of actions
+          in an environment, from a starting state until the episode ends.
+        </p>
+        <p class="term-scope">
+          For us that means one complete code attempt. We sample token after
+          token until the function is finished.
+        </p>
+        <figure class="viz">
+          <div class="rollout-track" aria-hidden="true">
+            <span class="roll-step soft">def</span>
+            <span class="roll-arrow">→</span>
+            <span class="roll-step soft">two_sum</span>
+            <span class="roll-arrow">→</span>
+            <span class="roll-step soft">(</span>
+            <span class="roll-arrow">→</span>
+            <span class="roll-step">seen</span>
+            <span class="roll-arrow">→</span>
+            <span class="roll-step">=</span>
+            <span class="roll-arrow">→</span>
+            <span class="roll-step">{}</span>
+            <span class="roll-arrow">→</span>
+            <span class="roll-step">…</span>
+          </div>
+          <pre class="code-card">def two_sum(nums, target):
+    seen = {}
+    for i, n in enumerate(nums):
+        if target - n in seen:
+            return [seen[target - n], i]
+        seen[n] = i
+    return []</pre>
+          <figcaption>Each arrow is one action from the policy. The finished function is one rollout.</figcaption>
+        </figure>
+      </section>
+
+      <section class="slide term-slide" data-slide="5" hidden>
+        <p class="term-label">Reward</p>
+        <p class="term-def">
+          David Silver: a reward is a scalar feedback signal. It indicates how
+          well the agent is doing at that step. The agent's job is to maximise
+          cumulative reward.
+        </p>
+        <p class="term-scope">
+          Our grader turns unit test results into that scalar. Tonight it is
+          mostly the fraction of tests that pass.
+        </p>
+        <figure class="viz">
+          <ul class="tests">
+            <li class="pass"><span>test_basic_pair</span><b>pass</b></li>
+            <li class="pass"><span>test_duplicates</span><b>pass</b></li>
+            <li class="fail"><span>test_empty_input</span><b>fail</b></li>
+            <li class="pass"><span>test_no_solution</span><b>pass</b></li>
+            <li class="fail"><span>test_order_stable</span><b>fail</b></li>
+            <li class="pass"><span>test_negatives</span><b>pass</b></li>
+          </ul>
+          <p class="reward-score">reward = 4 / 6 = <strong>0.67</strong></p>
+          <figcaption>No gold answer text is required. The tests emit the reward signal.</figcaption>
+        </figure>
+      </section>
+
+      <section class="slide term-slide" data-slide="6" hidden id="group-slide">
+        <p class="term-label">Group</p>
+        <p class="term-def">
+          A group is a set of comparable attempts scored relative to each other
+          instead of against a single labeled answer.
+        </p>
+        <p class="term-scope">
+          In GRPO we sample several rollouts for the same prompt and reinforce
+          the ones that beat the group mean.
+        </p>
+        <figure class="viz">
+          <div class="group-grid">
+            <article class="group-card above">
+              <header>rollout A</header>
+              <p>hash map</p>
+              <div class="group-bar"><i style="--w: 90%"></i></div>
+              <footer>r = 0.90</footer>
+            </article>
+            <article class="group-card above">
+              <header>rollout B</header>
+              <p>nested loops</p>
+              <div class="group-bar"><i style="--w: 70%"></i></div>
+              <footer>r = 0.70</footer>
+            </article>
+            <article class="group-card below">
+              <header>rollout C</header>
+              <p>sort + scan</p>
+              <div class="group-bar"><i style="--w: 40%"></i></div>
+              <footer>r = 0.40</footer>
+            </article>
+            <article class="group-card below">
+              <header>rollout D</header>
+              <p>broken index</p>
+              <div class="group-bar"><i style="--w: 10%"></i></div>
+              <footer>r = 0.10</footer>
+            </article>
+          </div>
+          <p class="group-mean">group mean = 0.53 · above mean gets reinforced</p>
+          <div class="probe">
+            <p class="probe-q">What happens if all four responses are the same?</p>
+            <ul class="probe-clues">
+              <li>If every reward is 0.50, which answer looks better?</li>
+              <li>Relative scoring needs a difference to push against.</li>
+              <li>Think about what the update can learn when nothing stands out.</li>
+            </ul>
+            <button type="button" class="reveal-btn" id="group-reveal">Reveal</button>
+            <p class="probe-answer" id="group-answer" hidden>
+              Nothing stands out. Advantages collapse toward zero, so the update
+              has almost no signal. Variety in the group is what makes GRPO move.
+            </p>
+          </div>
+        </figure>
+      </section>
+
+      <section class="slide term-slide" data-slide="7" hidden>
+        <p class="term-label">Update</p>
+        <p class="term-def">
+          An update changes the policy so future behaviour prefers actions that
+          led to higher reward.
+        </p>
+        <p class="term-scope">
+          We nudge the model weights so high scoring code becomes more likely the
+          next time we sample.
+        </p>
+        <figure class="viz">
+          <div class="update-compare">
+            <div>
+              <p class="mini-label">before</p>
+              <div class="chart compact">
+                <div class="chart-row"><span class="tok">hash</span><div class="chart-track"><i style="--h: 35%"></i></div></div>
+                <div class="chart-row"><span class="tok">loop</span><div class="chart-track"><i style="--h: 40%"></i></div></div>
+                <div class="chart-row"><span class="tok">sort</span><div class="chart-track"><i style="--h: 25%"></i></div></div>
+              </div>
+            </div>
+            <p class="update-arrow" aria-hidden="true">⇒</p>
+            <div>
+              <p class="mini-label">after</p>
+              <div class="chart compact">
+                <div class="chart-row hot"><span class="tok">hash</span><div class="chart-track"><i style="--h: 62%"></i></div></div>
+                <div class="chart-row"><span class="tok">loop</span><div class="chart-track"><i style="--h: 28%"></i></div></div>
+                <div class="chart-row"><span class="tok">sort</span><div class="chart-track"><i style="--h: 10%"></i></div></div>
+              </div>
+            </div>
+          </div>
+          <figcaption>collect → reward → update. The bars shift toward what scored well.</figcaption>
+        </figure>
+      </section>
+
+      <section class="slide wide" data-slide="8" hidden>
+        <h2>Human GRPO with Two Sum</h2>
+        <p>
+          Four people take four approaches. Sketch on your laptop for about a
+          minute. Volunteer to share screen or talk it through in thirty seconds.
+          We score live on this slide.
+        </p>
+        <div class="approach-grid" id="approach-grid">
+          <article class="approach" data-approach="0">
+            <header>
+              <span class="badge">A</span>
+              <h3>Hash map</h3>
+            </header>
+            <p>One pass with a dictionary of seen values to indices.</p>
+            <div class="score-row">
+              <button type="button" class="score-btn" data-delta="-1" aria-label="Lower score">−</button>
+              <strong class="score-value">0.0</strong>
+              <button type="button" class="score-btn" data-delta="1" aria-label="Raise score">+</button>
+            </div>
+          </article>
+          <article class="approach" data-approach="1">
+            <header>
+              <span class="badge">B</span>
+              <h3>Nested loops</h3>
+            </header>
+            <p>Check every pair. Simple and usually correct. Slow on large inputs.</p>
+            <div class="score-row">
+              <button type="button" class="score-btn" data-delta="-1" aria-label="Lower score">−</button>
+              <strong class="score-value">0.0</strong>
+              <button type="button" class="score-btn" data-delta="1" aria-label="Raise score">+</button>
+            </div>
+          </article>
+          <article class="approach" data-approach="2">
+            <header>
+              <span class="badge">C</span>
+              <h3>Sort and two pointers</h3>
+            </header>
+            <p>Sort a copy then walk inward. Watch index mapping carefully.</p>
+            <div class="score-row">
+              <button type="button" class="score-btn" data-delta="-1" aria-label="Lower score">−</button>
+              <strong class="score-value">0.0</strong>
+              <button type="button" class="score-btn" data-delta="1" aria-label="Raise score">+</button>
+            </div>
+          </article>
+          <article class="approach" data-approach="3">
+            <header>
+              <span class="badge">D</span>
+              <h3>Clever or broken</h3>
+            </header>
+            <p>Xor tricks, mutating in place, or a wrong early return. Surprise us.</p>
+            <div class="score-row">
+              <button type="button" class="score-btn" data-delta="-1" aria-label="Lower score">−</button>
+              <strong class="score-value">0.0</strong>
+              <button type="button" class="score-btn" data-delta="1" aria-label="Raise score">+</button>
+            </div>
+          </article>
+        </div>
+        <p class="group-mean" id="human-mean">group mean = 0.00 · better than average gets reinforced</p>
+      </section>
+
+      <section class="slide" data-slide="9" hidden>
+        <h2>Where Daytona sits in the stack</h2>
+        <ul class="stack">
+          <li>
+            <strong>GPU sandbox</strong>
+            <span>Loads the model, samples completions, and runs the GRPO weight update.</span>
+          </li>
+          <li>
+            <strong>CPU sandboxes</strong>
+            <span>Grade code in parallel. They never run the model. They only execute the test harness.</span>
+          </li>
+          <li>
+            <strong>This laptop</strong>
+            <span>Shows the story and starts the remote job.</span>
+          </li>
+        </ul>
+        <p>
+          If you want projects that go past a thin wrapper around a hosted chat
+          API, you need infra that can isolate untrusted code and scale the
+          graders. Sandboxes are the boring part that makes the interesting part
+          safe.
+        </p>
+      </section>
+
+      <section class="slide" data-slide="10" hidden>
+        <h2>One use case of a wider primitive</h2>
+        <p>
+          Tonight we use Daytona sandboxes as parallel graders for GRPO. That is
+          only one shape of the same idea. A sandbox is isolated compute you can
+          spin up for work that should not share your laptop.
+        </p>
+        <ul class="stack">
+          <li>
+            <strong>Cursor Cloud Agents</strong>
+            <span>Background coding agents can run inside Daytona sandboxes while you shut off your laptop. No more clamshelling.</span>
+          </li>
+          <li>
+            <strong>Data and analytics jobs</strong>
+            <span>Run notebooks, scrapers, or batch transforms without polluting a shared machine.</span>
+          </li>
+          <li>
+            <strong>Long running experiments</strong>
+            <span>Training loops, eval harnesses, and agent civilizations all need the same isolation layer.</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="slide" data-slide="11" hidden>
+        <h2>What comes online before learning</h2>
+        <ol class="bridge">
+          <li>Daytona creates an ephemeral GPU sandbox for the trainer.</li>
+          <li>We load a deliberately weak base policy so the starting point is honest.</li>
+          <li>CPU graders warm up. Those sandboxes only run tests.</li>
+          <li>A baseline eval uses the same checks we will use after training.</li>
+          <li>Each tile in the grid is one rollout with a return from the grader.</li>
+        </ol>
+      </section>
+
+      <section class="slide" data-slide="12" hidden>
+        <h2>Watch the policy improve on Two Sum Plus</h2>
+        <p>
+          The live run starts from an untrained policy on Two Sum Plus. Each
+          step collects a group of answers, scores them in parallel, and updates
+          the weights. The finale compares before and after on the same unit tests.
+        </p>
+        <p>
+          The model tries several answers. A grader scores them. Training nudges
+          the policy toward the answers that scored better.
+        </p>
+      </section>
+
+      <section class="slide" data-slide="13" hidden>
+        <h2>What should stick</h2>
+        <ol class="takeaways">
+          <li>Try, grade, reinforce. You do not need an answer key for every sample.</li>
+          <li>Sandboxes are safe parallel graders for coding rewards.</li>
+          <li>Finetuning can be a few minutes of clear infra plus a reward you can explain in one sentence.</li>
+          <li>Own the loop. Daytona is a reliable place to run the pieces that must stay isolated.</li>
+        </ol>
+        <p class="close-line">What questions do you have?</p>
+      </section>
+
+      <footer class="chrome" id="chrome" hidden>
+        <button type="button" class="nav" id="prev" aria-label="Previous slide">←</button>
+        <div class="progress">
+          <span id="slide-label">1 / 13</span>
+          <div class="bar" aria-hidden="true"><i id="bar-fill"></i></div>
+          <span id="elapsed">0:00</span>
+        </div>
+        <button type="button" class="nav" id="next" aria-label="Next slide">→</button>
+      </footer>
+    </div>
+    <script src="deck.js"></script>
+  </body>
+</html>

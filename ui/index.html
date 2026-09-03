@@ -39,6 +39,7 @@
           <h2>Start with the base model</h2>
           <p class="lead">We sample several answers before changing the weights. Each square is one isolated CPU sandbox.</p>
           <div class="metric-row"><div><span class="kicker">BASELINE PASS RATE</span><strong id="before-rate">—</strong></div><button class="button dark" id="baseline">Run baseline</button></div>
+          <div class="run-status" aria-live="polite"><span id="live-status">Waiting to start</span><span id="live-elapsed">0:00</span><div class="run-progress"><i id="live-progress"></i></div></div>
           <div class="sandbox-grid" id="sandbox-grid"></div>
           <p class="caption" id="grid-caption">No completions evaluated yet.</p>
           <span id="grid-count" class="hidden">0</span><span id="pool-status" class="hidden">16 READY</span>
@@ -46,18 +47,16 @@
 
         <article class="slide" data-slide="3">
           <p class="kicker">03 / THE LEARNING LOOP</p>
-          <h2>Reward the attempts that work</h2>
-          <div class="loop-layout">
-            <div class="loop-copy"><p>Every answer is tested. Passing more tests produces a higher reward. GRPO uses those relative rewards to update the model.</p><div class="mini-stat"><span>STEP</span><strong id="step-number">0 / 4</strong></div><div class="mini-stat"><span>MEAN REWARD</span><strong id="mean-reward">—</strong></div><div class="operator"><details><summary>Operator controls</summary><label>Tax long answers <input id="length-knob" type="checkbox"></label><label>Ban cheating <input id="ban-knob" type="checkbox"></label><button class="text-button" id="apply-knobs">Apply knobs</button></details></div></div>
-            <div class="chart-wrap"><div class="chart-title"><span>PASS RATE BY STEP</span><span id="phase-label">IDLE</span></div><svg id="reward-chart" viewBox="0 0 440 250"><path class="chart-gridline" d="M42 20H430 M42 125H430 M42 230H430"/><path id="curve-area" class="curve-area" d="M42 230H430V230H42Z"/><path id="curve-line" class="curve-line" d="M42 230H430"/><g id="curve-points"></g><text x="5" y="24">100%</text><text x="12" y="129">50%</text><text x="23" y="234">0%</text><text x="42" y="248">start</text><text x="400" y="248">step</text></svg></div>
-          </div><span id="current-rate" class="hidden">—</span>
-          <button class="button dark train-button" id="train">Train 4 steps</button><button id="stop" class="button danger hidden" disabled>Stop</button>
+          <h2>Reward lift, live</h2>
+          <div class="chart-wrap chart-main"><div class="chart-title"><span>PASS RATE BY STEP</span><span id="phase-label">IDLE</span></div><svg id="reward-chart" viewBox="0 0 440 250"><path class="chart-gridline" d="M42 20H430 M42 125H430 M42 230H430"/><path id="curve-area" class="curve-area" d="M42 230H430V230H42Z"/><path id="curve-line" class="curve-line" d="M42 230H430"/><g id="curve-points"></g><text x="5" y="24">100%</text><text x="12" y="129">50%</text><text x="23" y="234">0%</text><text x="42" y="248">start</text><text x="400" y="248">holdout</text></svg></div>
+          <span id="current-rate" class="hidden">—</span><div class="run-dashboard" aria-live="polite"><div class="dashboard-head"><span id="train-status">Ready to train</span><span id="train-elapsed">0:00</span></div><div class="dashboard-metrics"><div><span>STEP</span><strong id="train-step">0 / 4</strong></div><div><span>MEAN REWARD</span><strong id="train-reward">—</strong></div><div><span>PASS RATE</span><strong id="train-pass-rate">—</strong></div></div><div class="event-log hidden" id="training-log">Waiting for a training run.</div></div>
+          <span id="step-number" class="hidden">0 / 4</span><span id="mean-reward" class="hidden">—</span><span id="runtime" class="hidden">0s</span><button class="button dark train-button" id="train">Train 4 steps</button><button id="stop" class="button danger hidden" disabled>Stop</button>
         </article>
 
         <article class="slide" data-slide="4">
           <p class="kicker">04 / AFTER TRAINING</p>
           <h2>Did it learn?</h2>
-          <div class="result"><div><span class="kicker">BASELINE</span><strong id="result-before">—</strong></div><span class="result-arrow">→</span><div><span class="kicker">BEST CHECKPOINT</span><strong id="after-rate">—</strong></div></div>
+          <div class="result"><div><span class="kicker">BASELINE</span><strong id="result-before">—</strong></div><span class="result-arrow">→</span><div><span class="kicker">SELECTED HOLDOUT</span><strong id="after-rate">—</strong></div></div>
           <p class="lead result-copy">The model is not judged by what it says. It is judged by whether its code passes tests it has not seen.</p>
           <div class="paper-code best"><span>best_completion.py</span><pre id="best-code">The best completion will appear here.</pre><footer><span id="best-score">No reward yet</span><span id="best-step">—</span></footer></div>
           <button class="button" id="ghost">Replay rehearsal</button><p class="quiet">If the network fails, the recorded run keeps the story moving.</p>

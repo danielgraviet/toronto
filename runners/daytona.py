@@ -36,22 +36,44 @@ class SandboxSpec:
             raise ValueError("Set exactly one of snapshot or image")
 
 
+# Declarative GPU image contract — keep in sync with README / daytona-gpu snapshot.
+GPU_IMAGE_BASE = "pytorch/pytorch:2.11.0-cuda13.0-cudnn9-runtime"
+GPU_PIP_PACKAGES: tuple[str, ...] = (
+    "daytona>=0.207.0",
+    "transformers==5.9.0",
+    "trl==1.5.0",
+    "vllm==0.21.0",
+    "datasets",
+    "accelerate",
+    "peft",
+    "bitsandbytes",
+    "PyYAML",
+    "python-dotenv",
+)
+
+
+def validate_gpu_image_spec() -> None:
+    """Fail fast in CI when the declarative GPU stack drifts from requirements."""
+    if "cuda13" not in GPU_IMAGE_BASE:
+        raise ValueError(
+            f"GPU base image must include CUDA 13 for vLLM 0.21: {GPU_IMAGE_BASE!r}"
+        )
+    if "vllm==0.21.0" not in GPU_PIP_PACKAGES:
+        raise ValueError("GPU pip packages must pin vllm==0.21.0")
+
+
 def build_gpu_image() -> Any:
-    """Build the GPU environment declaratively for RTX PRO 6000 sandboxes."""
+    """Build the GPU environment declaratively for RTX PRO 6000 sandboxes.
+
+    CUDA 13 is required: vLLM 0.21 wheels link against ``libcudart.so.13``,
+    matching the documented ``daytona-gpu`` stack (torch 2.11 cu130).
+    """
     import daytona
 
     return (
-        daytona.Image.base("pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime")
+        daytona.Image.base(GPU_IMAGE_BASE)
         .pip_install(
-            "daytona>=0.207.0",
-            "transformers==5.9.0",
-            "trl==1.5.0",
-            "datasets",
-            "accelerate",
-            "peft",
-            "bitsandbytes",
-            "PyYAML",
-            "python-dotenv",
+            *GPU_PIP_PACKAGES,
             extra_options="--break-system-packages",
         )
         .workdir("/tmp/toronto")
@@ -118,6 +140,9 @@ class DaytonaRunner:
             )
         return await self._client.create(params, **create_options)
 
+    async def get(self, sandbox_id_or_name: str) -> Any:
+        return await self._client.get(sandbox_id_or_name)
+
     async def delete(self, sandbox: Any, timeout_seconds: int = 60) -> None:
         await sandbox.delete(timeout=timeout_seconds)
 
@@ -151,7 +176,7 @@ class DaytonaRunner:
         paths = [
             path for path in root.rglob("*")
             if path.is_file()
-            and "__pycache__" not in path.parts
+            and not {"__pycache__", ".venv", ".git", "node_modules"}.intersection(path.parts)
             and path.suffix in {".py", ".yaml"}
             and path.name != ".env"
         ]
